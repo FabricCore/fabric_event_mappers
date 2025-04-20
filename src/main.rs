@@ -1,3 +1,5 @@
+#![allow(static_mut_refs)]
+
 use std::{
     collections::{HashMap, HashSet},
     ffi::OsStr,
@@ -88,6 +90,9 @@ fn main() {
 
     search_match(&root, &mut results);
 
+    static mut IMPORT_INDEX: OnceLock<HashMap<String, String>> = OnceLock::new();
+    unsafe { IMPORT_INDEX.set(HashMap::new()) }.unwrap();
+
     let mut imports: HashSet<String> = HashSet::from_iter(results.iter().flat_map(|file| {
         file.lines()
             .filter(|line| line.starts_with("import "))
@@ -101,20 +106,13 @@ fn main() {
                     .0
                     .split(".")
                     .collect::<Vec<_>>();
-                format!("{}.*", chunks[..chunks.len() - 1].join("."))
+                unsafe { IMPORT_INDEX.get_mut() }
+                    .unwrap()
+                    .insert(chunks.last().unwrap().to_string(), chunks.join("."));
+                // format!("{}.*", chunks[..chunks.len() - 1].join("."))
+                chunks.join(".")
             })
     }));
-
-    let import_index: HashMap<String, String> = HashMap::from_iter(imports.iter().map(|entry| {
-        let splitted = entry.split(".").collect::<Vec<_>>();
-        (
-            splitted.last().unwrap().to_string(),
-            splitted[..splitted.len() - 1].join("."),
-        )
-    }));
-
-    static IMPORT_INDEX: OnceLock<HashMap<String, String>> = OnceLock::new();
-    IMPORT_INDEX.set(import_index).unwrap();
 
     #[derive(Debug)]
     struct FunctionalInterface {
@@ -138,10 +136,10 @@ fn main() {
                 self.arguments
                     .iter()
                     .map(|(t, v)| {
-                        if let Some(qualifier) = IMPORT_INDEX.get().unwrap().get(t) {
+                        if let Some(qualifier) = unsafe { IMPORT_INDEX.get() }.unwrap().get(t) {
                             if qualifier.starts_with("net.minecraft") {
                                 format!(
-                                    "new {}.{t}({v})",
+                                    "new {}({v})",
                                     qualifier.replace("net.minecraft", "yarnwrap")
                                 )
                             } else {
@@ -269,6 +267,8 @@ fn main() {
 
     println!(
         r#"package yarnwrap;
+
+import java.util.HashMap;
 
 {}
 
