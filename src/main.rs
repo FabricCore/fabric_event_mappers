@@ -4,6 +4,7 @@ use std::{
     collections::{HashMap, HashSet},
     ffi::OsStr,
     fs,
+    io::Write,
     path::{Path, PathBuf},
     sync::OnceLock,
 };
@@ -167,7 +168,10 @@ fn main() {
         }
     }
 
-    let functional_interfaces = results
+    // static mut IMPORT_INDEX: OnceLock<HashMap<String, String>> = OnceLock::new();
+    // unsafe { IMPORT_INDEX.set(HashMap::new()) }.unwrap();
+
+    let (mut functional_interfaces, mut event_classes): (Vec<_>, Vec<_>) = results
         .iter()
         .flat_map(|file| {
             let package = file
@@ -254,61 +258,48 @@ fn main() {
                         .map(|(a, b)| (a.to_string(), b.to_string()))
                         .collect();
 
-                    FunctionalInterface {
-                        qualifier: format!("{package}.{class}.{interface_name}"),
-                        result,
-                        name: function_name,
-                        arguments,
-                    }
+                    (
+                        FunctionalInterface {
+                            qualifier: format!("{package}.{class}.{interface_name}"),
+                            result,
+                            name: function_name,
+                            arguments,
+                        },
+                        (format!("Packages.{package}.{class}"), class.clone()),
+                    )
                 })
                 .collect::<Vec<_>>()
         })
+        .unzip();
+
+    event_classes = HashSet::<(String, String)>::from_iter(event_classes.into_iter())
+        .into_iter()
         .collect::<Vec<_>>();
+    event_classes.sort();
 
-    println!(
+    functional_interfaces.sort_by_key(|item| item.qualifier.clone());
+
+    let mut import_sorted = imports
+        .iter()
+        .map(|im| format!("import {im};"))
+        .collect::<Vec<_>>();
+    import_sorted.sort();
+
+    let runnable = format!(
         r#"package yarnwrap;
-
-import java.util.HashMap;
 
 {}
 
-public class Core extends ws.siri.jscore.wraps.Runnable implements
+public class Runnable extends ws.siri.jscore.wraps.IRunnable implements
 {} {{
 
-public static HashMap<String, Core> runnables = new HashMap<>();
-
-
-public Core(String ident, String function) {{
+public Runnable(String ident, String function) {{
     super(ident, function);
-    f = ws.siri.jscore.Core.rhino.compileFunction(ws.siri.jscore.Core.rhinoScope, function, ident, 1, null);
-    runnables.put(ident, this);
-}}
-
-public static Core runnable(String ident, String function) {{
-    return Core.create(ident, function);
-}}
-
-public static Core create(String ident, String function) {{
-    if (runnables.containsKey(ident)) {{
-        org.mozilla.javascript.Function f = ws.siri.jscore.Core.rhino.compileFunction(ws.siri.jscore.Core.rhinoScope, function, ident, 1, null);
-        runnables.get(ident).f = f;
-        return runnables.get(ident);
-    }} else {{
-        return new Core(ident, function);
-    }}
-}}
-
-public static Core getRunnable(String ident) {{
-    return Core.runnables.get(ident);
 }}
 
 {}
 }}"#,
-        imports
-            .iter()
-            .map(|im| format!("import {im};"))
-            .collect::<Vec<_>>()
-            .join("\n"),
+        import_sorted.join("\n"),
         functional_interfaces
             .iter()
             .map(|inter| inter.qualifier.clone())
@@ -319,7 +310,32 @@ public static Core getRunnable(String ident) {{
             .map(FunctionalInterface::to_string)
             .collect::<Vec<_>>()
             .join("\n\n")
-    )
+    );
+
+    fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open("Runnable.java")
+        .unwrap()
+        .write_all(runnable.as_bytes())
+        .unwrap();
+
+    fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open("events.js")
+        .unwrap()
+        .write_all(
+            event_classes
+                .into_iter()
+                .map(|(package, class)| format!("let {class} = {package};"))
+                .collect::<Vec<_>>()
+                .join("\n")
+                .as_bytes(),
+        )
+        .unwrap();
 
     // dbg!(functional_interfaces);
     // println!("{}", imports.iter().cloned().collect::<Vec<_>>().join("\n"))
