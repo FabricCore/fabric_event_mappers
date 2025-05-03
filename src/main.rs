@@ -125,15 +125,8 @@ fn main() {
 
     impl FunctionalInterface {
         pub fn to_string(&self) -> String {
-            format!(
-                "@Override\npublic {} {}({}) {{ runF({}); {} }}",
-                self.result,
-                self.name,
-                self.arguments
-                    .iter()
-                    .map(|(t, v)| format!("{t} {v}"))
-                    .collect::<Vec<_>>()
-                    .join(", "),
+            let body = format!(
+                "runF({})",
                 self.arguments
                     .iter()
                     .map(|(t, v)| {
@@ -151,14 +144,25 @@ fn main() {
                         }
                     })
                     .collect::<Vec<_>>()
+                    .join(", ")
+            );
+            format!(
+                "@Override\npublic {} {}({}) {{ {} }}",
+                self.result,
+                self.name,
+                self.arguments
+                    .iter()
+                    .map(|(t, v)| format!("{t} {v}"))
+                    .collect::<Vec<_>>()
                     .join(", "),
                 if self.result.as_str() == "void" {
-                    String::new()
+                    format!("{body};")
                 } else {
                     format!(
-                        "return {}; ",
+                        r#"Object res = {body}; try {{ return ({}) res; }} catch (Exception e) {{ ws.siri.jscore.Core.log("\u00A77[\u00A7cCastError (Event)\u00A77] \u00A7c" + e.toString()); return {}; }}"#,
+                        self.result,
                         match self.result.as_str() {
-                            "int" | "long" | "float" | "double" | "short" | "byte" => "1",
+                            "int" | "long" | "float" | "double" | "short" | "byte" => "0",
                             "boolean" => "true",
                             _ => "null",
                         }
