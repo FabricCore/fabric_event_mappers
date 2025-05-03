@@ -159,8 +159,10 @@ fn main() {
                     format!("{body};")
                 } else {
                     format!(
-                        r#"Object res = {body}; try {{ return ({}) res; }} catch (Exception e) {{ if(!org.mozilla.javascript.Undefined.isUndefined(res)) ws.siri.jscore.Core.log("\u00A77[\u00A7cCastError (Event)\u00A77] \u00A7c" + e.toString()); return {}; }}"#,
+                        r#"Object res = {body}; try {{ return ({}) res; }} catch (Exception e) {{ try {{ Object step = ((org.mozilla.javascript.NativeJavaObject) res).unwrap(); return ({}) step.getClass().getField("wrapperContained").get(step); }} catch (Exception _e) {{}} ws.siri.jscore.Core.log("\u00A77[\u00A7cCastError ({})\u00A77] \u00A7c" + e.toString()); return {}; }}"#,
                         self.result,
+                        self.result,
+                        self.name,
                         match self.result.as_str() {
                             "int" | "long" | "float" | "double" | "short" | "byte" => "0",
                             "boolean" => "true",
