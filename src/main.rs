@@ -159,7 +159,7 @@ fn main() {
                     format!("{body};")
                 } else {
                     format!(
-                        r#"Object res = {body}; try {{ return ({}) res; }} catch (Exception e) {{ ws.siri.jscore.Core.log("\u00A77[\u00A7cCastError (Event)\u00A77] \u00A7c" + e.toString()); return {}; }}"#,
+                        r#"Object res = {body}; try {{ return ({}) res; }} catch (Exception e) {{ if(!org.mozilla.javascript.Undefined.isUndefined(res)) ws.siri.jscore.Core.log("\u00A77[\u00A7cCastError (Event)\u00A77] \u00A7c" + e.toString()); return {}; }}"#,
                         self.result,
                         match self.result.as_str() {
                             "int" | "long" | "float" | "double" | "short" | "byte" => "0",
