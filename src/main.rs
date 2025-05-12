@@ -6,10 +6,18 @@ use std::{
     fs,
     io::Write,
     path::{Path, PathBuf},
-    sync::OnceLock,
+    sync::{Mutex, OnceLock},
 };
 
+use json::JsonValue;
+
 fn main() {
+    static IDENTITIES: OnceLock<Mutex<JsonValue>> = OnceLock::new();
+    IDENTITIES
+        .set(Mutex::new(
+            json::parse(fs::read_to_string("identities.json").unwrap().as_str()).unwrap(),
+        ))
+        .unwrap();
     let root = PathBuf::from(std::env::args().nth(1).expect("no path specified"));
 
     let mut results = Vec::new();
@@ -158,16 +166,29 @@ fn main() {
                 if self.result.as_str() == "void" {
                     format!("{body};")
                 } else {
+                    let mut identities = IDENTITIES.get().unwrap().lock().unwrap();
+                    let identity = if identities[&self.name].as_str().is_some_and(|s| !s.is_empty())
+                    {
+                        identities[&self.name].as_str().unwrap().to_string()
+                    } else {
+                        let _ = identities.insert(self.name.as_str(), "");
+                        println!(
+                            "missing identity `{}`, using default, entry added to identities.json",
+                            self.name
+                        );
+                        format!(
+                            "return {};",
+                            match self.result.as_str() {
+                                "int" | "long" | "float" | "double" | "short" | "byte" => "0",
+                                "boolean" => "true",
+                                _ => "null",
+                            }
+                        )
+                    };
+
                     format!(
-                        r#"Object res = {body}; try {{ return ({}) res; }} catch (Exception e) {{ try {{ Object step = ((org.mozilla.javascript.NativeJavaObject) res).unwrap(); return ({}) step.getClass().getField("wrapperContained").get(step); }} catch (Exception _e) {{}} ws.siri.jscore.Core.log("\u00A77[\u00A7cCastError ({})\u00A77] \u00A7c" + e.toString()); return {}; }}"#,
-                        self.result,
-                        self.result,
-                        self.name,
-                        match self.result.as_str() {
-                            "int" | "long" | "float" | "double" | "short" | "byte" => "0",
-                            "boolean" => "true",
-                            _ => "null",
-                        }
+                        r#"Object res = {body}; if (Undefined.isUndefined(res)) {{ {identity} }} else try {{ return ({}) res; }} catch (Exception e) {{ try {{ Object step = ((org.mozilla.javascript.NativeJavaObject) res).unwrap(); return ({}) step.getClass().getField("wrapperContained").get(step); }} catch (Exception _e) {{}} ws.siri.jscore.Core.log("\u00A77[\u00A7cCastError ({})\u00A77] \u00A7c" + e.toString()); {identity} }}"#,
+                        self.result, self.result, self.name,
                     )
                 },
             )
@@ -294,6 +315,8 @@ fn main() {
     let runnable = format!(
         r#"package yarnwrap;
 
+import org.mozilla.javascript.Undefined;
+
 {}
 
 public class Runnable extends ws.siri.jscore.wraps.IRunnable implements
@@ -342,6 +365,15 @@ public Runnable(String ident, String function) {{
                 .as_bytes(),
         )
         .unwrap();
+
+    let file = &mut fs::OpenOptions::new()
+        .write(true)
+        .truncate(true)
+        .open("identities.json")
+        .unwrap();
+
+    let s = json::stringify_pretty(IDENTITIES.get().unwrap().lock().unwrap().clone(), 4);
+    file.write_all(s.as_bytes()).unwrap();
 
     // dbg!(functional_interfaces);
     // println!("{}", imports.iter().cloned().collect::<Vec<_>>().join("\n"))

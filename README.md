@@ -13,3 +13,12 @@ cargo install --git https://github.com/FabricCore/fabric_event_mappers
 ```sh
 fabric_event_mappers /path/to/fabric
 ```
+
+### Identities
+
+When updating to a newer version, you may need to update `identities.json`.
+
+An identity for a handler is the default behaviour of the handler, such as `return true;`.
+
+- Missing identities will be added to the JSON file.
+- Only functions that returns non-void value requires an identity.
