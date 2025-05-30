@@ -29,5 +29,13 @@
     "allowChatMessage": "return true;",
     "allowCommandMessage": "return true;",
     "allowGameMessage": "return true;",
-    "find": "return null;"
+    "find": "return null;",
+    "onPickItemFromBlock": "",
+    "onPickItemFromEntity": "",
+    "void register": "",
+    "allowKeyPress": "",
+    "allowKeyRelease": "",
+    "allowMouseClick": "",
+    "allowMouseRelease": "",
+    "allowMouseScroll": ""
 }

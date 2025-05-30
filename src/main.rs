@@ -36,7 +36,7 @@ fn main() {
                 search_match(&entry.path(), results);
             } else {
                 let content = fs::read_to_string(entry.path()).unwrap();
-                if content.contains("public static final Event<") {
+                if content.contains("Event<") {
                     fn escape(s: &str) -> String {
                         let mut out = String::new();
 
@@ -167,7 +167,9 @@ fn main() {
                     format!("{body};")
                 } else {
                     let mut identities = IDENTITIES.get().unwrap().lock().unwrap();
-                    let identity = if identities[&self.name].as_str().is_some_and(|s| !s.is_empty())
+                    let identity = if identities[&self.name]
+                        .as_str()
+                        .is_some_and(|s| !s.is_empty())
                     {
                         identities[&self.name].as_str().unwrap().to_string()
                     } else {
@@ -200,7 +202,7 @@ fn main() {
 
     let (mut functional_interfaces, mut event_classes): (Vec<_>, Vec<_>) = results
         .iter()
-        .flat_map(|file| {
+        .filter_map(|file| {
             let package = file
                 .trim()
                 .lines()
@@ -212,92 +214,119 @@ fn main() {
                 .split_once(";")
                 .unwrap()
                 .0;
-            let class = file
-                .lines()
-                .find(|line| line.contains(" class "))
-                .unwrap()
-                .split_once(" class ")
-                .unwrap()
-                .1
-                .chars()
-                .filter(char::is_ascii_alphanumeric)
-                .collect::<String>();
-            imports.insert(format!("{package}.{class}.*"));
+            let class =
+                if let Some(classline) = file.lines().find(|line| line.starts_with("public ")) {
+                    classline
+                        .trim()
+                        .split(" ")
+                        .find(|s| s.chars().next().unwrap().is_uppercase())
+                        .unwrap()
+                        .to_string()
+                } else {
+                    return None;
+                };
+
+            if class.contains("<") {
+                return None;
+            }
+
+            imports.insert(format!("{package}.{}.*", class.split("<").next().unwrap()));
             imports.insert(format!("{package}.*"));
 
-            file.split("@FunctionalInterface")
-                .skip(1)
-                .map(|src| {
-                    let interface_name = src
-                        .split_once("public interface ")
-                        .unwrap()
-                        .1
-                        .split_once(" ")
-                        .unwrap()
-                        .0;
-                    let result = src
-                        .split_once('{')
-                        .unwrap()
-                        .1
-                        .trim()
-                        .split_once(' ')
-                        .unwrap()
-                        .0
-                        .split("\n")
-                        .last()
-                        .unwrap()
-                        .to_string();
-                    let function_name = src
-                        .split_once('{')
-                        .unwrap()
-                        .1
-                        .trim()
-                        .split_once(' ')
-                        .unwrap()
-                        .1
-                        .split_once('(')
-                        .unwrap()
-                        .0
-                        .to_string();
-                    let arguments = src
-                        .split_once('{')
-                        .unwrap()
-                        .1
-                        .trim()
-                        .split_once(' ')
-                        .unwrap()
-                        .1
-                        .split_once('(')
-                        .unwrap()
-                        .1
-                        .split_once(')')
-                        .unwrap()
-                        .0
-                        .split(',')
-                        .map(|pair| {
-                            if pair.contains("@") {
-                                let mut skipped = pair.trim().split(" ").skip(1);
-                                (skipped.next().unwrap(), skipped.next().unwrap())
-                            } else {
-                                pair.trim().split_once(' ').unwrap()
-                            }
-                        })
-                        .map(|(a, b)| (a.to_string(), b.to_string()))
-                        .collect();
+            Some(
+                file.split("@FunctionalInterface")
+                    .skip(1)
+                    .filter_map(|src| {
+                        let interface_name = src
+                            .split_once("interface ")
+                            .unwrap()
+                            .1
+                            .split_once(" ")
+                            .unwrap()
+                            .0;
 
-                    (
-                        FunctionalInterface {
-                            qualifier: format!("{package}.{class}.{interface_name}"),
-                            result,
-                            name: function_name,
-                            arguments,
-                        },
-                        (format!("Packages.{package}.{class}"), class.clone()),
-                    )
-                })
-                .collect::<Vec<_>>()
+                        if interface_name.contains("<") {
+                            return None;
+                        }
+                        let result = src
+                            .split_once('{')
+                            .unwrap()
+                            .1
+                            .trim()
+                            .split_once(' ')
+                            .unwrap()
+                            .0
+                            .split("\n")
+                            .last()
+                            .unwrap()
+                            .to_string();
+                        if result.as_str() == "static" {
+                            return None;
+                        }
+                        let function_name = src
+                            .split_once('{')
+                            .unwrap()
+                            .1
+                            .trim()
+                            .split_once(' ')
+                            .unwrap()
+                            .1
+                            .split_once('(')
+                            .unwrap()
+                            .0
+                            .to_string();
+                        let mut argument_failed = false;
+                        let arguments = src
+                            .split_once('{')
+                            .unwrap()
+                            .1
+                            .trim()
+                            .split_once(' ')
+                            .unwrap()
+                            .1
+                            .split_once('(')
+                            .unwrap()
+                            .1
+                            .split_once(')')
+                            .unwrap()
+                            .0
+                            .split(',')
+                            .filter(|s| !s.is_empty())
+                            .map(|pair| {
+                                if pair.contains("@") {
+                                    let mut skipped = pair.trim().split(" ").skip(1);
+                                    (skipped.next().unwrap(), skipped.next().unwrap())
+                                } else if let Some(pair) = pair.trim().split_once(' ') {
+                                    pair
+                                } else {
+                                    argument_failed = true;
+                                    ("", "")
+                                }
+                            })
+                            .map(|(a, b)| (a.to_string(), b.to_string()))
+                            .collect();
+
+                        if argument_failed {
+                            return None;
+                        }
+
+                        Some((
+                            FunctionalInterface {
+                                qualifier: format!("{package}.{class}.{interface_name}"),
+                                result,
+                                name: function_name,
+                                arguments,
+                            },
+                            (format!("Packages.{package}.{class}"), class.clone()),
+                        ))
+                    })
+                    .collect::<Vec<_>>(),
+            )
         })
+        .flatten()
         .unzip();
+
+    // dbg!(&event_classes);
 
     event_classes = HashSet::<(String, String)>::from_iter(event_classes.into_iter())
         .into_iter()
@@ -319,10 +348,10 @@ import org.mozilla.javascript.Undefined;
 
 {}
 
-public class Runnable extends ws.siri.jscore.wraps.IRunnable implements
+public class RunnableGenerated extends ws.siri.jscore.wraps.IRunnable implements
 {} {{
 
-public Runnable(String ident, String function) {{
+public RunnableGenerated(String ident, String function) {{
     super(ident, function);
 }}
 
@@ -345,7 +374,7 @@ public Runnable(String ident, String function) {{
         .write(true)
         .create(true)
         .truncate(true)
-        .open("Runnable.java")
+        .open("RunnableGenerated.java")
         .unwrap()
         .write_all(runnable.as_bytes())
         .unwrap();
@@ -359,7 +388,13 @@ public Runnable(String ident, String function) {{
         .write_all(
             event_classes
                 .into_iter()
-                .map(|(package, class)| format!("let {class} = {package};"))
+                .map(|(package, class)| {
+                    format!(
+                        "let {} = {};",
+                        class.split("<").next().unwrap(),
+                        package.split("<").next().unwrap()
+                    )
+                })
                 .collect::<Vec<_>>()
                 .join("\n")
                 .as_bytes(),
